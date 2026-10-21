@@ -5,13 +5,19 @@ import os
 import time
 from urllib.parse import quote
 
-from utils import crypto, pathsafe
+from utils import auth, crypto, pathsafe
 
 TEMPLATE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "public", "index.html"
 )
 
 VIDEO_EXTS = (".mp4", ".webm", ".ogg", ".mov", ".mkv", ".m4v")
+
+ROLE_HINTS = {
+    "guest": "只读访客：可浏览与下载",
+    "builder": "建设者：可上传与新建文件夹",
+    "admin": "管理员：可上传、删除与查看监视器",
+}
 
 # 文件类型徽标：扩展名 → CSS 类名，决定徽标配色
 BADGE_GROUPS = (
@@ -97,15 +103,21 @@ def render_crumbs(rel_dir: str) -> str:
     return "".join(parts)
 
 
-def render_rows(entries, rel_dir: str) -> str:
+def render_rows(entries, rel_dir: str, role: str = "guest") -> str:
     if not entries:
+        hint = (
+            "拖文件到上方虚线框，或点「新建文件夹」"
+            if auth.can(role, "builder")
+            else "这个目录暂时是空的"
+        )
         return (
             '<tr class="empty-row"><td colspan="4" class="empty">'
             "<strong>这里还没有内容</strong>"
-            "<span>拖文件到上方虚线框，或点「新建文件夹」</span>"
-            "</td></tr>"
+            "<span>%s</span>"
+            "</td></tr>" % hint
         )
 
+    is_admin = auth.can(role, "admin")
     rows = []
     for entry in entries:
         name = entry["name"]
@@ -114,6 +126,12 @@ def render_rows(entries, rel_dir: str) -> str:
         encoded = quote(rel)
         escaped_name = html.escape(name)
         escaped_name_attr = html.escape(name, quote=True)
+        del_btn = (
+            '<button class="btn danger" type="button" data-del="%s">删除</button>'
+            % html.escape(encoded, quote=True)
+            if is_admin
+            else ""
+        )
 
         if entry["type"] == "dir":
             rows.append(
@@ -122,15 +140,14 @@ def render_rows(entries, rel_dir: str) -> str:
                 '<a href="/?dir=%s">%s</a></td>'
                 '<td class="size">—</td>'
                 '<td class="time">%s</td>'
-                '<td class="op"><button class="btn danger" type="button" '
-                'data-rmdir="/files/%s">删除</button></td>'
+                '<td class="op">%s</td>'
                 "</tr>"
                 % (
                     escaped_name_attr,
                     html.escape(quote(rel), quote=True),
                     escaped_name,
                     stamp,
-                    html.escape(encoded, quote=True),
+                    del_btn,
                 )
             )
             continue
@@ -152,8 +169,7 @@ def render_rows(entries, rel_dir: str) -> str:
             '<td class="size">%s</td>'
             '<td class="time">%s</td>'
             '<td class="op">'
-            '<button class="btn" type="button" data-get="%s">下载</button>'
-            '<button class="btn danger" type="button" data-del="%s">删除</button>'
+            '<button class="btn" type="button" data-get="%s">下载</button>%s'
             "</td></tr>"
             % (
                 escaped_name_attr,
@@ -166,13 +182,13 @@ def render_rows(entries, rel_dir: str) -> str:
                 human_size(entry["size"]),
                 stamp,
                 html.escape(file_url, quote=True),
-                html.escape(file_url, quote=True),
+                del_btn,
             )
         )
     return "\n".join(rows)
 
 
-def handle(handler, rel_dir=""):
+def handle(handler, rel_dir="", role="guest"):
     try:
         real_dir = pathsafe.resolve(rel_dir)
     except pathsafe.PathEscape:
@@ -188,10 +204,13 @@ def handle(handler, rel_dir=""):
     with open(TEMPLATE_PATH, "r", encoding="utf-8") as f:
         page = f.read()
     page = page.replace("<!--CRUMBS-->", render_crumbs(rel_dir))
-    page = page.replace("<!--FILES-->", render_rows(entries, rel_dir))
+    page = page.replace("<!--FILES-->", render_rows(entries, rel_dir, role))
     page = page.replace("<!--COUNT-->", str(len(files)))
     page = page.replace("<!--TOTAL-->", human_size(sum(e["size"] for e in files)))
     page = page.replace("<!--DIR-->", html.escape(rel_dir, quote=True))
+    page = page.replace("<!--ROLE-->", role)
+    page = page.replace("<!--ROLE_LABEL-->", auth.LABELS.get(role, role))
+    page = page.replace("<!--ROLE_HINT-->", ROLE_HINTS.get(role, ""))
     body = page.encode("utf-8")
 
     handler._send_head(

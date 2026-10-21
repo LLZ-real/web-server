@@ -39,10 +39,19 @@
   h1 { font-size: 21px; font-weight: 650; margin: 0 0 4px; letter-spacing: .2px; }
   h1 .dot { color: var(--accent); }
   .sub { color: var(--dim); margin: 0; font-size: 12.5px; }
-  .stats { display: flex; gap: 8px; }
+  .stats { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .pill { background: var(--panel); border: 1px solid var(--line); color: var(--dim);
           padding: 6px 12px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
   .pill b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pill.role { color: var(--accent); border-color: rgba(76,139,245,.3);
+               background: var(--accent-soft); }
+  .pill.role b { color: var(--accent); }
+  .logout-form { margin: 0; }
+
+  /* 角色权限：前端只做隐藏，真正的拦截在服务端 */
+  [data-role="guest"] [data-need="builder"],
+  [data-role="guest"] [data-need="admin"],
+  [data-role="builder"] [data-need="admin"] { display: none !important; }
 
   /* ---------- 卡片 ---------- */
   .card { background: var(--panel); border: 1px solid var(--line);
@@ -271,7 +280,7 @@
 </style>
 </head>
 <body>
-<div class="wrap" id="wrap" data-dir="<!--DIR-->">
+<div class="wrap" id="wrap" data-dir="<!--DIR-->" data-role="<!--ROLE-->">
 
   <header>
     <div>
@@ -281,10 +290,14 @@
     <div class="stats">
       <span class="pill"><b id="count"><!--COUNT--></b> 个文件</span>
       <span class="pill">共 <b id="total"><!--TOTAL--></b></span>
+      <span class="pill role" title="<!--ROLE_HINT-->"><b><!--ROLE_LABEL--></b></span>
+      <form class="logout-form" method="post" action="/logout">
+        <button class="btn" type="submit">退出登录</button>
+      </form>
     </div>
   </header>
 
-  <div class="card">
+  <div class="card" data-need="builder">
     <div class="card-body">
       <div id="dropzone">
         <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -315,7 +328,7 @@
   <div class="card">
     <div class="card-head">
       <div class="crumbs" id="crumbs"><!--CRUMBS--></div>
-      <button class="btn" id="new-folder" type="button">新建文件夹</button>
+      <button class="btn" id="new-folder" type="button" data-need="builder">新建文件夹</button>
     </div>
     <table id="list">
       <thead>
@@ -347,7 +360,7 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" data-need="builder">
     <div class="card-head">
       <span class="card-title">请求监视器</span>
       <div class="head-tools">
@@ -458,10 +471,13 @@ function refreshStats() {
   totalEl.textContent = formatSize(total);
 
   if (tbody.querySelectorAll("tr[data-name]").length === 0 && !tbody.querySelector(".empty-row")) {
+    var hint = wrap.dataset.role === "guest"
+      ? "这个目录暂时是空的"
+      : "拖文件到上方虚线框，或点「新建文件夹」";
     var tr = document.createElement("tr");
     tr.className = "empty-row";
     tr.innerHTML = '<td colspan="4" class="empty"><strong>这里还没有内容</strong>'
-                 + '<span>拖文件到上方虚线框，或点「新建文件夹」</span></td>';
+                 + '<span>' + hint + '</span></td>';
     tbody.appendChild(tr);
   }
   rebuildVideos();
@@ -707,15 +723,16 @@ document.getElementById("new-folder").addEventListener("click", function () {
   });
 });
 
-/* ---------- 删除（文件 / 空目录） ---------- */
+/* ---------- 删除（文件 / 目录，管理员） ---------- */
 
-function removeEntry(btn, isDir) {
+function removeEntry(btn) {
   var row = btn.closest("tr");
   var name = row.dataset.name;
-  var url = isDir ? btn.dataset.rmdir : btn.dataset.del;
+  var isDir = row.dataset.dir === "1";
+  var url = btn.dataset.del;
   var encrypted = !isDir && row.dataset.enc === "1";
   var desc = isDir
-    ? "确定删除文件夹「" + name + "」？\n仅空文件夹可以删除。"
+    ? "确定删除文件夹「" + name + "」？\n其中的所有文件和子文件夹会一并删除，且无法恢复。"
     : encrypted
       ? "「" + name + "」已加密，删除前需要输入访问密码。\n删除后无法恢复。"
       : "确定删除「" + name + "」？\n删除后无法恢复。";
@@ -738,8 +755,8 @@ function removeEntry(btn, isDir) {
         })
         .then(function (data) {
           if (!data.ok) {
-            throw new Error(data.status === 401 ? "密码错误或令牌已过期"
-                            : data.status === 409 ? "文件夹不为空，无法删除"
+            throw new Error(data.status === 403 ? "没有删除权限（仅管理员可删除）"
+                            : data.status === 401 ? "登录已失效，或密码错误/令牌已过期"
                             : data.status === 404 ? "目标已不存在"
                             : "服务器返回 " + (data.status || "错误"));
           }
@@ -760,10 +777,8 @@ function removeEntry(btn, isDir) {
 tbody.addEventListener("click", function (e) {
   var getter = e.target.closest("button[data-get]");
   if (getter) { startDownload(getter); return; }
-  var rmdir = e.target.closest("button[data-rmdir]");
-  if (rmdir) { removeEntry(rmdir, true); return; }
   var del = e.target.closest("button[data-del]");
-  if (del) { removeEntry(del, false); }
+  if (del) { removeEntry(del); }
 });
 
 /* ---------- 请求监视器 ---------- */
@@ -849,8 +864,11 @@ debugToggle.addEventListener("click", function () {
   }
 });
 
-pollReqs();
-setInterval(pollReqs, 1200);
+// 访客没有监视器权限，不轮询，免得每 1.2 秒刷一条 403
+if (wrap.dataset.role !== "guest") {
+  pollReqs();
+  setInterval(pollReqs, 1200);
+}
 </script>
 </body>
 </html>

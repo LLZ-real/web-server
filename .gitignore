@@ -21,6 +21,9 @@ src/storage/*
 *.log
 server.out
 
+# 访问码（含管理员码，绝不入库）
+src/auth.json
+
 # ---------- 编辑器 / 系统 ----------
 .vscode/
 .idea/

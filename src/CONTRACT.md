@@ -9,6 +9,46 @@
 - 所有响应都带 `Content-Length`（304 除外），否则连接无法复用
 - 存储根：`storage/`，一切文件路径必须经 `utils/pathsafe.resolve()` 校验
 
+## 0. 鉴权与角色
+
+三级角色，权限只升不降：
+
+| 角色 | 访问码字段 | 权限 |
+|---|---|---|
+| `guest` 访客 | `guest` | 浏览目录、下载文件（含播放视频、解锁加密文件） |
+| `builder` 建设者 | `builder` | 访客权限 + 上传、新建文件夹、查看请求监视器 |
+| `admin` 管理员 | `admin` | 建设者权限 + 删除文件/文件夹（含非空目录） |
+
+- 访问码存于 `src/auth.json`（已在 `.gitignore` 中忽略）；启动时缺失则生成随机码并写回，
+  同时打印到控制台。三个访问码应互不相同。
+- 登录成功后签发随机令牌，写入 `Set-Cookie: wfs_session=<token>; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`；
+  令牌只存服务端内存，12 小时滑动过期，进程重启即失效。
+- **未登录**时：页面类请求（`GET /`、`GET /files/*`、`GET /debug/requests`）一律 `302 Location: /login`；
+  接口类请求（`POST` / `DELETE`）返回 `401 Unauthorized: login required`。
+- **角色不足**时返回 `403`（`Forbidden: builder required` / `Forbidden: admin required`）。
+- 权限在服务端强制校验；前端的隐藏只是界面效果，不是安全边界。
+
+### 0.1 `GET /login`
+
+| 项 | 值 |
+|---|---|
+| 响应 | `200` 登录页 HTML；已登录时 `302 Location: /` |
+| 查询参数 | `err=1` 时显示「访问码不正确」 |
+
+### 0.2 `POST /login`
+
+| 项 | 值 |
+|---|---|
+| 请求头 | `Content-Type: application/x-www-form-urlencoded`，body 上限 4KB |
+| 请求体 | `code=<访问码>` |
+| 成功响应 | `303 Location: /` + `Set-Cookie: wfs_session=...` |
+| 失败响应 | `303 Location: /login?err=1`（不回显访问码） |
+| `400` | `Content-Length` 缺失/非法/超限 |
+
+### 0.3 `POST /logout`
+
+清除 Cookie（`Max-Age=0`）并 `303 Location: /login`；未登录时先返回 `401`。
+
 ## 1. `GET /`（含 `HEAD /`）
 
 | 项 | 值 |
@@ -62,19 +102,19 @@
 - 密码只参与内存计算，不写日志、不回显；`filename` / `files` 为相对 `storage/` 的路径
 - 响应体为 JSON 时前端自行 `location.reload()`，不使用 302
 
-## 4. `DELETE /files/<path>`
+## 4. `DELETE /files/<path>`（仅管理员）
 
 | 项 | 值 |
 |---|---|
 | 请求体 | 无 |
 | 查询参数 | `token=<unlock token>`（目标为加密文件时必填） |
-| 成功响应 | `200`，`application/json`：`{"ok": true, "filename": "a/b.txt", "kind": "file"}` |
-| `401` | 目标是加密文件，且未带有效令牌（`Unauthorized: password required`） |
-| `403` | 路径越权 |
+| 成功响应 | `200`，`application/json`：`{"ok": true, "filename": "a/b.txt", "kind": "file"}`（目录时 `kind: "dir"`） |
+| `401` | 未登录（`Unauthorized: login required`）；或目标是加密文件且未带有效令牌（`Unauthorized: password required`） |
+| `403` | 角色不是管理员（`Forbidden: admin required`）；路径越权；目标是 storage 根目录 |
 | `404` | 目标不存在 |
-| `409` | 目标是目录且不为空（`Conflict: directory not empty`） |
 
-- 目录可以删除，但**仅限空目录**；含任何条目（包括隐藏文件）都返回 409
+- 目录**递归删除**：连同其中所有文件与子目录一并移除（`shutil.rmtree`），不再返回 `409`
+- 删除 `storage/` 根本身始终拒绝（`403 Forbidden: cannot delete storage root`）
 - 加密文件必须先 `POST /unlock` 输密码换令牌，再带 `?token=` 删除，与下载共用同一令牌
 - 删除后不可恢复，前端必须二次确认
 
@@ -108,7 +148,7 @@
 - 前端**不缓存令牌**：每次下载、删除、播放加密视频都要重新输入密码；
   令牌仅在单次视频播放的连续 Range 请求之间复用（`<video>` 自身持有该 URL）
 
-## 7. `GET /debug/requests`
+## 7. `GET /debug/requests`（需 `builder` 及以上）
 
 页面内「请求监视器」的数据源，返回最近 20 条请求记录：
 
@@ -128,11 +168,14 @@
 
 | 场景 | 状态码 | 响应体 |
 |---|---|---|
+| 未登录访问页面 / 文件 | `302` | 空，`Location: /login` |
+| 未登录调用接口 | `401` | `Unauthorized: login required` |
+| 角色不足（访客上传 / 非管理员删除） | `403` | `Forbidden: builder required` / `Forbidden: admin required` |
+| 删除 storage 根目录 | `403` | `Forbidden: cannot delete storage root` |
 | 路径不存在 | `404` | `Not Found` |
 | 路径越权 | `403` | `Forbidden` |
 | 加密文件缺少/失效令牌 | `401` | `Unauthorized: password required` |
 | 解锁密码错误 | `401` | `{"ok": false, "error": "bad-password"}` |
-| 目录不为空 | `409` | `Conflict: directory not empty` |
 | 同名文件夹已存在 | `409` | `{"ok": false, "error": "exists"}` |
 | Range 越界 | `416` | 空 |
 | ETag 匹配 | `304` | 空 |

@@ -1,4 +1,4 @@
-"""删除：DELETE /files/<path>。文件直接删，目录仅在为空时删。
+"""删除：DELETE /files/<path>（仅管理员）。文件直接删，目录连同内容递归删除。
 
 加密文件需要先 POST /unlock 拿到 token，再用 `?token=` 删除；
 密码本身永远不出现在 URL 与日志里。
@@ -6,6 +6,7 @@
 
 import json
 import os
+import shutil
 from urllib.parse import parse_qs, unquote, urlparse
 
 from utils import crypto, pathsafe, session
@@ -21,15 +22,15 @@ def handle(handler, raw_name):
     if not os.path.exists(real):
         return handler.send_text(404, "Not Found", note="missing")
 
+    # storage 根目录本身绝不允许删除（/files/ 后面为空时会落到这里）
+    if os.path.realpath(real) == os.path.realpath(pathsafe.STORAGE):
+        return handler.send_text(403, "Forbidden: cannot delete storage root", note="root")
+
     rel = pathsafe.relative(real)
 
     if os.path.isdir(real):
-        if os.listdir(real):
-            return handler.send_text(
-                409, "Conflict: directory not empty", note="dir-not-empty"
-            )
         try:
-            os.rmdir(real)
+            shutil.rmtree(real)
         except OSError:
             return handler.send_text(500, "Internal Server Error", note="delete-failed")
         kind = "dir"

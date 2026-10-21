@@ -17,11 +17,12 @@ from handlers import (  # noqa: E402
     delete,
     download,
     listing,
+    login,
     mkdir,
     unlock,
     upload,
 )
-from utils import pathsafe, reqlog  # noqa: E402
+from utils import auth, pathsafe, reqlog  # noqa: E402
 
 HOST = "0.0.0.0"
 PORT = 8000
@@ -39,25 +40,36 @@ class FileHandler(BaseHTTPRequestHandler):
 
     # ---------- 路由 ----------
 
+    def _begin(self):
+        """每次请求的公共初始化：解析 query、从 Cookie 还原角色。"""
+        self._response_started = False
+        parsed = urlparse(self.path)
+        self.query = parsed.query
+        self.role = auth.role_from_cookie(self.headers.get("Cookie"))
+        return parsed.path
+
     def do_GET(self):
         self._head_only = False
-        self._response_started = False
         self._dispatch_get()
 
     def do_HEAD(self):
         # curl -I 走 HEAD，与 GET 共用同一套逻辑，只是不写 body
         self._head_only = True
-        self._response_started = False
         self._dispatch_get()
 
     def _dispatch_get(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
+        path = self._begin()
         try:
+            if path == "/login":
+                return login.show(self)
+            if self.role is None:
+                return self.redirect("/login", note="login required")
             if path == "/":
-                rel_dir = (parse_qs(parsed.query).get("dir") or [""])[0]
-                return listing.handle(self, rel_dir)
+                rel_dir = (parse_qs(self.query).get("dir") or [""])[0]
+                return listing.handle(self, rel_dir, self.role)
             if path == "/debug/requests":
+                if not auth.can(self.role, "builder"):
+                    return self.send_text(403, "Forbidden: builder required", note="rbac")
                 return debug.handle(self)
             if path.startswith("/files/"):
                 return download.handle(self, path[len("/files/"):])
@@ -67,13 +79,22 @@ class FileHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self._head_only = False
-        self._response_started = False
-        path = urlparse(self.path).path
+        path = self._begin()
         try:
-            if path == "/upload":
-                return upload.handle(self)
-            if path == "/mkdir":
-                return mkdir.handle(self)
+            if path == "/login":
+                return login.submit(self)
+            if self.role is None:
+                return self.send_text(
+                    401, "Unauthorized: login required", note="login required"
+                )
+            if path == "/logout":
+                return login.logout(self)
+            if path in ("/upload", "/mkdir"):
+                if not auth.can(self.role, "builder"):
+                    return self.send_text(
+                        403, "Forbidden: builder required", note="rbac"
+                    )
+                return upload.handle(self) if path == "/upload" else mkdir.handle(self)
             if path == "/unlock":
                 return unlock.handle(self)
             return self.send_text(405, "Method Not Allowed", {"Allow": ALLOWED_METHODS})
@@ -82,9 +103,14 @@ class FileHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self._head_only = False
-        self._response_started = False
-        path = urlparse(self.path).path
+        path = self._begin()
         try:
+            if self.role is None:
+                return self.send_text(
+                    401, "Unauthorized: login required", note="login required"
+                )
+            if not auth.can(self.role, "admin"):
+                return self.send_text(403, "Forbidden: admin required", note="rbac")
             if path.startswith("/files/"):
                 return delete.handle(self, path[len("/files/"):])
             return self.send_text(404, "Not Found")
@@ -103,6 +129,14 @@ class FileHandler(BaseHTTPRequestHandler):
         if not getattr(self, "_head_only", False):
             self.wfile.write(body)
         self.log_result(status, len(body), note)
+
+    def redirect(self, location, extra_headers=None, note="redirect"):
+        """临时跳转：GET 用 302，POST 用 303（避免刷新时重复提交表单）。"""
+        status = 303 if self.command == "POST" else 302
+        headers = {"Location": location}
+        headers.update(extra_headers or {})
+        self._send_head(status, "text/html; charset=utf-8", 0, headers)
+        self.log_result(status, 0, note)
 
     def _handle_exception(self):
         """未捕获异常兜底：traceback 只进服务端日志，不回给客户端。"""
@@ -185,6 +219,12 @@ del _method
 def main():
     os.makedirs(STORAGE_DIR, exist_ok=True)
     os.makedirs(PUBLIC_DIR, exist_ok=True)
+
+    codes = auth.load_codes()
+    print("Access codes (src/auth.json):")
+    for role in auth.ROLES:
+        print("  %-8s %-9s %s" % (role, auth.LABELS[role], codes[role]))
+
     server = ThreadingHTTPServer((HOST, PORT), FileHandler)
     print("Serving on http://%s:%d  (LAN IP available)" % (HOST, PORT))
     print("Storage root: %s" % STORAGE_DIR)
