@@ -96,6 +96,16 @@ def filename_of(headers: dict):
         return value
 
 
+def field_name(headers: dict):
+    """取 Content-Disposition 里的 name="..."（普通表单字段用）。"""
+    cd = headers.get("content-disposition", "")
+    m = re.search(r'name\s*=\s*"([^"]*)"', cd, re.I)
+    if m:
+        return m.group(1)
+    m = re.search(r"name\s*=\s*([^;]+)", cd, re.I)
+    return m.group(1).strip() if m else None
+
+
 def sanitize(filename: str) -> str:
     """清洗文件名：去目录成分、控制字符，空名交给调用方处理。"""
     # Windows 的 \\ 与 POSIX 的 / 都要当成路径分隔符

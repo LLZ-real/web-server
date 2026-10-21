@@ -4,15 +4,24 @@
 """
 
 import os
+import re
 import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from handlers import download, listing, upload  # noqa: E402
-from utils import pathsafe  # noqa: E402
+from handlers import (  # noqa: E402
+    debug,
+    delete,
+    download,
+    listing,
+    mkdir,
+    unlock,
+    upload,
+)
+from utils import pathsafe, reqlog  # noqa: E402
 
 HOST = "0.0.0.0"
 PORT = 8000
@@ -20,7 +29,8 @@ PORT = 8000
 PUBLIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 STORAGE_DIR = pathsafe.STORAGE
 
-METHODS_NOT_ALLOWED = ("PUT", "DELETE", "PATCH", "OPTIONS", "TRACE", "CONNECT")
+METHODS_NOT_ALLOWED = ("PUT", "PATCH", "OPTIONS", "TRACE", "CONNECT")
+ALLOWED_METHODS = "GET, HEAD, POST, DELETE"
 
 
 class FileHandler(BaseHTTPRequestHandler):
@@ -41,10 +51,14 @@ class FileHandler(BaseHTTPRequestHandler):
         self._dispatch_get()
 
     def _dispatch_get(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         try:
             if path == "/":
-                return listing.handle(self)
+                rel_dir = (parse_qs(parsed.query).get("dir") or [""])[0]
+                return listing.handle(self, rel_dir)
+            if path == "/debug/requests":
+                return debug.handle(self)
             if path.startswith("/files/"):
                 return download.handle(self, path[len("/files/"):])
             return self.send_text(404, "Not Found")
@@ -58,12 +72,27 @@ class FileHandler(BaseHTTPRequestHandler):
         try:
             if path == "/upload":
                 return upload.handle(self)
-            return self.send_text(405, "Method Not Allowed", {"Allow": "GET, POST"})
+            if path == "/mkdir":
+                return mkdir.handle(self)
+            if path == "/unlock":
+                return unlock.handle(self)
+            return self.send_text(405, "Method Not Allowed", {"Allow": ALLOWED_METHODS})
+        except Exception:
+            return self._handle_exception()
+
+    def do_DELETE(self):
+        self._head_only = False
+        self._response_started = False
+        path = urlparse(self.path).path
+        try:
+            if path.startswith("/files/"):
+                return delete.handle(self, path[len("/files/"):])
+            return self.send_text(404, "Not Found")
         except Exception:
             return self._handle_exception()
 
     def _method_not_allowed(self):
-        self.send_text(405, "Method Not Allowed", {"Allow": "GET, POST"})
+        self.send_text(405, "Method Not Allowed", {"Allow": ALLOWED_METHODS})
 
     # ---------- 响应工具 ----------
 
@@ -77,6 +106,11 @@ class FileHandler(BaseHTTPRequestHandler):
 
     def _handle_exception(self):
         """未捕获异常兜底：traceback 只进服务端日志，不回给客户端。"""
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+            # 客户端主动断开（常见于视频拖动时取消上一段 Range 请求），不是服务端错误
+            self.close_connection = True
+            return
         traceback.print_exc()
         if getattr(self, "_response_started", False):
             # 响应头已发出，无法再改成 500，只能断连接
@@ -114,19 +148,32 @@ class FileHandler(BaseHTTPRequestHandler):
         pass
 
     def log_result(self, status, nbytes, note=""):
+        # 解锁令牌等同于临时密码，写日志前统一脱敏
+        path = re.sub(r"(token=)[^&]*", r"\1***", self.path)
         sys.stderr.write(
             '[%s] %s "%s %s" %s %sB %s\n'
             % (
                 self.log_date_time_string(),
                 self.client_address[0],
                 self.command,
-                self.path,
+                path,
                 status,
                 nbytes,
                 note,
             )
         )
         sys.stderr.flush()
+        reqlog.record(
+            {
+                "time": self.log_date_time_string().rsplit(" ", 1)[-1],
+                "client": self.client_address[0],
+                "method": self.command,
+                "path": path,
+                "status": status,
+                "bytes": nbytes,
+                "note": note,
+            }
+        )
 
 
 # 其余 HTTP 方法统一 405，符合错误处理矩阵

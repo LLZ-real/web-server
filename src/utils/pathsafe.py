@@ -37,3 +37,21 @@ def resolve(user_path: str) -> str:
         raise PathEscape(user_path)
 
     return candidate
+
+
+def relative(real: str) -> str:
+    """绝对路径 → storage 内的相对路径（统一用 / 分隔，根目录返回空串）。"""
+    rel = os.path.relpath(real, STORAGE)
+    return "" if rel == "." else rel.replace(os.sep, "/")
+
+
+def check_entry_name(name: str):
+    """校验「新建文件夹」这类单段名称，非法时抛 ValueError。"""
+    if not name or name in (".", ".."):
+        raise ValueError("empty-name")
+    if "/" in name or "\\" in name or "\x00" in name:
+        raise ValueError("separator")
+    if any(ord(ch) < 32 for ch in name):
+        raise ValueError("control-char")
+    return name
+

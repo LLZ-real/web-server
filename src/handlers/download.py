@@ -1,9 +1,13 @@
-"""文件下载：GET /files/<name>，支持 ETag 条件请求与单段 Range。"""
+"""文件下载：GET /files/<path>，支持 ETag 条件请求与单段 Range。
+
+加密文件需要先 POST /unlock 拿到 token，再用 `?token=` 下载；
+密码本身永远不出现在 URL 与日志里。
+"""
 
 import os
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlparse
 
-from utils import mime, pathsafe
+from utils import crypto, mime, pathsafe, session
 
 CHUNK = 64 * 1024
 
@@ -34,8 +38,8 @@ def parse_range(header: str, size: int):
     return start, min(end, size - 1)
 
 
-def stream(handler, real, start, end):
-    """流式发送 [start, end]，内存占用恒定为 64KB。"""
+def stream_plain(handler, real, start, end):
+    """流式发送明文的 [start, end]，内存占用恒定为 64KB。"""
     remaining = end - start + 1
     with open(real, "rb") as f:
         f.seek(start)
@@ -45,7 +49,11 @@ def stream(handler, real, start, end):
                 break
             handler.wfile.write(chunk)
             remaining -= len(chunk)
-    return end - start + 1
+
+
+def stream_encrypted(handler, real, key, start, end):
+    for chunk in crypto.iter_decrypted(real, key, start, end):
+        handler.wfile.write(chunk)
 
 
 def handle(handler, raw_name):
@@ -59,7 +67,21 @@ def handle(handler, raw_name):
         return handler.send_text(404, "Not Found", note="missing")
 
     stat = os.stat(real)
-    size = stat.st_size
+    encrypted = crypto.is_encrypted(real)
+    key = None
+
+    if encrypted:
+        key = session.key_for(
+            (parse_qs(urlparse(handler.path).query).get("token") or [""])[0], real
+        )
+        if key is None:
+            return handler.send_text(
+                401, "Unauthorized: password required", {"Cache-Control": "no-store"}
+            )
+        size = crypto.plain_size(real)
+    else:
+        size = stat.st_size
+
     etag = '"%x-%x"' % (stat.st_mtime_ns, stat.st_size)
 
     # 条件请求：命中则 304，无 body、无 Content-Length
@@ -95,8 +117,17 @@ def handle(handler, raw_name):
 
     length = (end - start + 1) if size > 0 else 0
     note = "range=%d-%d" % (start, end) if status == 206 else "full"
+    if encrypted:
+        note += " encrypted"
 
     handler._send_head(status, mime.guess(real), length, extra)
     if not handler._head_only and length > 0:
-        stream(handler, real, start, end)
+        try:
+            if encrypted:
+                stream_encrypted(handler, real, key, start, end)
+            else:
+                stream_plain(handler, real, start, end)
+        except (ConnectionResetError, BrokenPipeError):
+            handler.close_connection = True
+            return
     handler.log_result(status, length, note)
