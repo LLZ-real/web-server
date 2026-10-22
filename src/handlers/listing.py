@@ -124,11 +124,12 @@ def render_rows(entries, rel_dir: str, role: str = "guest") -> str:
         rel = (rel_dir + "/" + name) if rel_dir else name
         stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(entry["mtime"]))
         encoded = quote(rel)
+        delete_url = "/files/" + encoded
         escaped_name = html.escape(name)
         escaped_name_attr = html.escape(name, quote=True)
         del_btn = (
             '<button class="btn danger" type="button" data-del="%s">删除</button>'
-            % html.escape(encoded, quote=True)
+            % html.escape(delete_url, quote=True)
             if is_admin
             else ""
         )
