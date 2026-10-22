@@ -9,7 +9,7 @@ cd web-server
 python src/server.py
 ```
 
-首次启动会在 `src/auth.json` 生成三个随机访问码并打印到控制台（该文件已被 `.gitignore` 忽略）。
+首次启动会在 `src/auth.json` 生成三个随机访问码并打印到控制台。
 浏览器打开 <http://localhost:8000/>，用对应的访问码登录；局域网设备访问 `http://<本机局域网 IP>:8000/`。
 存储根目录为 `src/storage/`（首次启动自动创建）。
 
@@ -55,7 +55,7 @@ web-server/
 | 能力 | 实现要点 |
 |---|---|
 | 鉴权 | 三个共享访问码（`src/auth.json`）对应 `guest` < `builder` < `admin`；登录签发 HttpOnly Cookie 会话，未登录一律跳登录页 |
-| 目录管理 | `GET /?dir=` 浏览子目录，面包屑逐段可点；`POST /mkdir` 新建；上传目标为当前目录 |
+| 目录管理 | `GET /?dir=` 浏览子目录；`POST /mkdir` 新建；上传目标为当前目录 |
 | 目录删除 | `DELETE /files/<path>` 递归删除（含非空目录），仅管理员；storage 根目录拒绝删除 |
 | 加密文件 | 上传时填密码 → PBKDF2-HMAC-SHA256(150000) 派生密钥 + SHAKE-256 计数器流加密落盘 |
 | 加密下载 | 密码经 `POST /unlock` 换取与文件绑定的令牌（10 分钟），再用 `?token=` 下载；错误密码 `401`；前端不缓存令牌，每次操作都重新输密码 |
