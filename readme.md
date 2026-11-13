@@ -38,25 +38,22 @@ Two behaviours matter when reasoning about the encrypted-file protection:
 
 ### 2.1 Login and role-based access
 
-![Login page](登录鉴权.png)
 
 Unauthenticated visitors see only this page. Each access code maps to one role; the page states what each role can do. A successful login sets an `HttpOnly; SameSite=Lax` session cookie (`wfs_session`), valid for 12 hours of activity.
 
 ### 2.2 Main interface
 
-![Main interface](主界面.png)
+
 
 The header shows the current role (`管理员`), file count and total size, plus a logout button. The upload card (drop zone, file picker, optional encryption password) is only rendered for builder and admin sessions. The table lists folders first, then files by modification time, with type badges (`DIR`, `MP4`, …) and per-row actions.
 
 ### 2.3 Encrypted file unlock
 
-![Encrypted file dialog](加密截图.png)
 
 An encrypted file is marked with a lock icon. Every download, playback and delete operation asks for the password again — the browser never caches an unlock token. The dialog shows which file is being unlocked (`实验.zip` in this screenshot).
 
 ### 2.4 Video playback and request monitor
 
-![Video player and request monitor](视频播放和监视面板.png)
 
 Videos are streamed directly from the listing. Dragging the progress bar issues `Range` requests; the monitor below shows the protocol behaviour live — `304 cache-hit` for the same video requested twice, and a `404` for `/favicon.ico`. This panel is available to builder and admin roles.
 
@@ -115,7 +112,6 @@ Cloudflare prints a temporary `https://…trycloudflare.com` address that works 
 ```
 homework-group2-network-project/
 ├── report.md                 # this file
-├── 主界面.png / 加密截图.png / 登录鉴权.png / 视频播放和监视面板.png
 └── src/
     ├── server.py             # entry point, routing, auth gate, logging
     ├── CONTRACT.md           # API contract (written before the code)
