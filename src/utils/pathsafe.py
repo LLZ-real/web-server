@@ -17,25 +17,28 @@ class PathEscape(Exception):
     """用户输入的目标路径位于 storage 之外。"""
 
 
+def _clean(user_path: str) -> str:
+    """丢掉 NUL / 控制字符 / 双向控制字符（U+202A~E、U+2066~9 可用于视觉欺骗）。"""
+    def ok(c):
+        o = ord(c)
+        return c.isprintable() and not (0x202A <= o <= 0x202E) and not (
+            0x2066 <= o <= 0x2069
+        )
+    return "".join(c for c in user_path if ok(c))
+
+
 def resolve(user_path: str) -> str:
     """把用户输入的文件名转成 storage 内的绝对路径，越权时抛 PathEscape。"""
-    # 1. 丢掉 NUL 与控制字符
-    cleaned = "".join(c for c in user_path if c.isprintable())
-
-    # 2. 拼接后取 realpath，消解 ../ 与符号链接
+    cleaned = _clean(user_path)
     candidate = os.path.realpath(os.path.join(STORAGE, cleaned))
-
-    # 3. 前缀校验：必须仍在 STORAGE 下
-    #    用 commonpath 而非 startswith，因为 "/storage-evil" 能骗过 startswith("/storage")
+    # 用 commonpath 而非 startswith，因为 "/storage-evil" 能骗过 startswith
     try:
         common = os.path.commonpath([candidate, STORAGE])
     except ValueError:  # 不同盘符（Windows）
         raise PathEscape(user_path)
-
     # Windows 下大小写不敏感，比较前先 normcase
     if os.path.normcase(common) != os.path.normcase(STORAGE):
         raise PathEscape(user_path)
-
     return candidate
 
 
@@ -45,13 +48,19 @@ def relative(real: str) -> str:
     return "" if rel == "." else rel.replace(os.sep, "/")
 
 
+_WIN_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {
+    "COM%d" % i for i in range(1, 10)
+} | {"LPT%d" % i for i in range(1, 10)}
+
+
 def check_entry_name(name: str):
     """校验「新建文件夹」这类单段名称，非法时抛 ValueError。"""
-    if not name or name in (".", ".."):
+    if not name or name in (".", "..") or name.rstrip(". ") != name:
         raise ValueError("empty-name")
-    if "/" in name or "\\" in name or "\x00" in name:
+    if "/" in name or "\\" in name or "\x00" in name or ":" in name:
         raise ValueError("separator")
     if any(ord(ch) < 32 for ch in name):
         raise ValueError("control-char")
+    if name.split(".")[0].upper() in _WIN_RESERVED:
+        raise ValueError("reserved-name")
     return name
-

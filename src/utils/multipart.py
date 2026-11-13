@@ -32,13 +32,36 @@ def parse_headers(blob: bytes) -> dict:
     return headers
 
 
+def _split_sections(body: bytes, delimiter: bytes):
+    """只在 `\r\n--boundary`（后跟 CRLF 或 --）处切分，避免误伤文件内容。
+
+    AUDIT §1.4：裸 `body.split(b"--"+boundary)` 会把二进制文件里偶然出现的
+    边界字节当成新 part，导致文件静默截断且服务端仍返回 200。
+    """
+    marker = b"\r\n" + delimiter
+    sections = []
+    if body.startswith(delimiter):
+        pos = len(delimiter)
+    else:
+        first = body.find(marker)
+        if first < 0:
+            return []
+        pos = first + len(marker)
+    while True:
+        nxt = body.find(marker, pos)
+        if nxt < 0:
+            sections.append(body[pos:])
+            break
+        sections.append(body[pos:nxt])
+        pos = nxt + len(marker)
+    return sections
+
+
 def parse(body: bytes, boundary: str):
     """按 boundary 把 body 切成 [{"headers": {...}, "body": bytes}, ...]。"""
     delimiter = b"--" + boundary.encode("latin-1")
-    sections = body.split(delimiter)
-
     parts = []
-    for section in sections[1:]:  # sections[0] 是第一个 delimiter 之前的 preamble
+    for section in _split_sections(body, delimiter):
         if section.startswith(b"--"):  # 结束标记 --BOUNDARY--
             break
         if section.startswith(b"\r\n"):
@@ -47,19 +70,22 @@ def parse(body: bytes, boundary: str):
             section = section[:-2]  # 剥离属于分隔符的 CRLF
         if not section:
             continue
-
         header_blob, sep, data = section.partition(b"\r\n\r\n")
         if not sep:
             continue
         parts.append({"headers": parse_headers(header_blob), "body": data})
-
     return parts
 
 
 def get_boundary(content_type: str):
-    """从 Content-Type 中取出 boundary，取不到返回 None。"""
-    m = re.search(r'boundary="?([^";]+)"?', content_type or "", re.I)
-    return m.group(1) if m else None
+    """从 Content-Type 中取 boundary，兼容带引号且含分号/空格的值。"""
+    if not content_type:
+        return None
+    m = re.search(r'\bboundary\s*=\s*("([^"]*)"|([^;\s]+))', content_type, re.I)
+    if not m:
+        return None
+    value = m.group(2) if m.group(2) is not None else m.group(3)
+    return (value or "").strip() or None
 
 
 def filename_of(headers: dict):
@@ -106,9 +132,19 @@ def field_name(headers: dict):
     return m.group(1).strip() if m else None
 
 
+_WIN_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {
+    "COM%d" % i for i in range(1, 10)
+} | {"LPT%d" % i for i in range(1, 10)}
+
+
 def sanitize(filename: str) -> str:
-    """清洗文件名：去目录成分、控制字符，空名交给调用方处理。"""
+    """清洗文件名：去目录成分、控制字符、Windows 保留名与尾随点/空格。"""
     # Windows 的 \\ 与 POSIX 的 / 都要当成路径分隔符
     name = filename.replace("\\", "/").split("/")[-1]
     name = "".join(c for c in name if c.isprintable() and c != "\x00").strip()
+    name = name.rstrip(". ")
+    if not name or name in (".", "..") or ":" in name:
+        return ""
+    if name.split(".")[0].upper() in _WIN_RESERVED:
+        return ""
     return name

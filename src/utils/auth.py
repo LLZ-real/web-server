@@ -8,6 +8,7 @@
 令牌只存内存，服务重启即失效。
 """
 
+import hashlib
 import hmac
 import json
 import os
@@ -41,7 +42,12 @@ def _write_config(codes):
 
 
 def load_codes():
-    """读取 auth.json；缺字段或读不到时生成随机码并写回。返回 {role: code}。"""
+    """读取 auth.json；缺字段或读不到时生成随机码并写回。返回 {role: code}。
+
+    安全说明：访问码为高熵随机串，配置文件以明文保存以便现场演示登录；
+    已由 .gitignore 排除，且校验使用 hmac.compare_digest 常量时间比较。
+    生产部署可用 ``hash_codes()`` 生成哈希版配置（不可逆丢失明文）。
+    """
     global _codes
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -63,14 +69,34 @@ def load_codes():
     return codes
 
 
+def hash_codes():
+    """可选：把 auth.json 改写为 sha256$ 哈希版（不可逆，演示前请勿调用）。"""
+    import hashlib
+    payload = {
+        r: "sha256$" + hashlib.sha256(("wfs:" + c).encode("utf-8")).hexdigest()
+        for r, c in _codes.items()
+    }
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    return payload
+
+
 def role_for_code(code: str):
     """访问码 → 角色；不匹配返回 None。同码时按最高角色裁决。"""
     code = (code or "").strip()
     if not code:
         return None
+    import hashlib
+    digest = "sha256$" + hashlib.sha256(("wfs:" + code).encode("utf-8")).hexdigest()
     for role in ("admin", "builder", "guest"):
         expected = _codes.get(role, "")
-        if expected and hmac.compare_digest(code, expected):
+        if not expected:
+            continue
+        if expected.startswith("sha256$"):
+            if hmac.compare_digest(digest, expected):
+                return role
+        elif hmac.compare_digest(code, expected):
             return role
     return None
 
@@ -105,6 +131,8 @@ def logout(token: str):
         return
     with _lock:
         _sessions.pop(token, None)
+    from utils import session  # 登出即撤销该会话签发的解锁令牌
+    session.revoke_session(token)
 
 
 def _prune():
@@ -132,10 +160,10 @@ def role_from_cookie(header: str):
 
 
 def session_cookie(token: str) -> str:
-    return "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d" % (
-        COOKIE_NAME,
-        token,
-        SESSION_TTL,
+    # WFS_HTTPS=1（经 HTTPS 隧道部署时设置）才加 Secure，本地 HTTP 仍可登录
+    secure = "; Secure" if os.environ.get("WFS_HTTPS") == "1" else ""
+    return "%s=%s; Path=/; HttpOnly; SameSite=Lax%s; Max-Age=%d" % (
+        COOKIE_NAME, token, secure, SESSION_TTL,
     )
 
 

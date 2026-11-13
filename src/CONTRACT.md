@@ -203,4 +203,88 @@
 ```
 
 - 上传备注会追加 `encrypted`，下载备注追加 `encrypted`，便于核对加密路径
-- 密码永不入日志；令牌统一脱敏为 `token=***`
+- 密码永不入日志；**日志只记录 `urlparse().path`，全部 query 一律剥离**，
+  出现 query 时追加 `?<redacted>`（v2 起不再使用 `token=***` 的文本脱敏正则，
+  从根本上杜绝大小写变体绕过）
+
+## 10.（v2 新增）仪表盘与静态资源
+
+### 10.1 `GET /api/metrics`（需登录）
+
+返回一次指标快照：
+
+```json
+{"uptime": 123, "total_requests": 42, "total_out": 999999, "total_in": 5000,
+ "status": {"2":30,"3":5,"4":6,"5":1}, "methods": {"GET":35,"POST":7},
+ "active": 2, "peak_rps": 9, "now": 1760000000,
+ "series": [{"t":1760000000,"req":3,"out":4096,"in":0,"err":0}],
+ "events": [...最近 12 条请求...],
+ "storage": {"files":4,"dirs":1,"bytes":6000000},
+ "roles": {"guest":"访客","builder":"建设者","admin":"管理员"}}
+```
+
+- `series` 为最近 60 秒的秒级样本，`err` 为该秒 4xx/5xx 数
+- 响应带 `Cache-Control: no-store`
+
+### 10.2 `GET /api/events`（需登录，SSE）
+
+`Content-Type: text/event-stream`，每秒一帧：
+
+```
+data: {"uptime":...,"series":[...],...}
+
+```
+
+- 连接最多保持 5 分钟，前端 `EventSource` 自动重连
+- 不写访问日志，避免自身刷屏
+
+### 10.3 `POST /api/demo/traffic`（需登录）
+
+一键生成约 10 秒的演示流量（只写指标缓冲与请求日志，**不产生真实网络请求、不触碰用户文件**）。
+返回 `{"ok": true, "seconds": 10}`；重复调用返回 `{"ok": false, "error": "already running"}`。
+
+### 10.4 `GET /api/search?q=<关键词>`（需登录）
+
+递归遍历 `storage/` 做**文件名**匹配（不做内容索引），供前端全局搜索直达目录。
+
+```json
+{"ok": true, "q": "内存", "truncated": false,
+ "results": [
+   {"name":"第四部分 内存虚拟化.pdf", "rel":"test/第四部分 内存虚拟化.pdf",
+    "dir":"test", "size":4888777, "ext":".pdf", "kind":"file",
+    "encrypted":false, "mtime":1760000000}
+ ]}
+```
+
+| 项 | 值 |
+|---|---|
+| 查询参数 | `q`，空串返回空结果；超过 128 字符截断 |
+| 结果字段 | `dir` 是**所在目录**的相对路径（根目录为 `""`），前端据此跳 `/?dir=<dir>#f=<name>` |
+| 限制 | 递归深度 ≤ 12、结果 ≤ 120 条，超出置 `truncated: true` |
+| 安全 | 不跟随符号链接、忽略隐藏文件、响应带 `Cache-Control: no-store` |
+
+### 10.5 `GET /static/<name>`（公开，登录前亦可访问）
+
+白名单仅 `dash.css` / `app.js`；带 `ETag`，命中 `If-None-Match` 返回 304。
+白名单外或含路径穿越一律 404。**不提供目录列表，不回显任意文件**。
+
+## 11.（v2 变更）安全与加密
+
+- **所有响应**统一附加 `X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、
+  `Referrer-Policy: no-referrer`、CSP（`object-src 'none'`、`frame-ancestors 'none'` 等）。
+- 用户上传的活动类型（`.html/.htm/.xhtml/.svg/.js/.xml/...`）一律返回
+  `Content-Disposition: attachment; filename*=UTF-8''...`，不再内联执行。
+- 加密文件**全部响应**（200/206/304/401/416）带 `Cache-Control: no-store, private`、
+  `Pragma: no-cache`、`Vary: *`。
+- **加密格式 v2**：`WFSENC02 | salt16 | verifier32 | rounds4 | size8 | header_mac32 |
+  [ct 64KB + tag16]×N`。PBKDF2 轮数 600 000；头部与每个密文块均有 HMAC 校验；
+  size 不得超过磁盘实际容量。v1 文件仍可解锁读取，新写入一律 v2。
+- 解锁令牌绑定「文件 + 签发会话」；`POST /logout` 会撤销该会话的全部令牌。
+- `/login` 与 `/unlock` 各有滑动窗口限流：60 秒内 8 次失败 → 锁 30 秒，返回
+  `429 Too Many Requests` + `Retry-After`。
+- 上传用 `O_EXCL` 原子创建，同名自动 `name (1).ext`，并发不覆盖；body 上限 256MB。
+- `Range`：`size=0` 一律 416；`If-None-Match` 支持 `*` / `W/` / 多值弱比较；
+  请求整个文件时返回 200 而非 206。
+- `WFS_HTTPS=1` 时会话 Cookie 追加 `Secure`。
+
+> 完整修复清单与演示说明见根目录 `CHANGES.md`，审查细节见 `AUDIT.md`。

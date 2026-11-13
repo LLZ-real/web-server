@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Web File Server</title>
+<title>Web File Server · 实时仪表盘</title>
+<link rel="stylesheet" href="<!--ASSET_CSS-->">
 <style>
   :root {
     --bg: #0e1014;
@@ -297,7 +298,7 @@
     </div>
   </header>
 
-  <div class="card" data-need="builder">
+  <div class="card" data-need="builder" id="card-upload">
     <div class="card-body">
       <div id="dropzone">
         <svg class="dz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -325,9 +326,12 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="card-files">
     <div class="card-head">
-      <div class="crumbs" id="crumbs"><!--CRUMBS--></div>
+      <div>
+        <div class="card-title" style="margin-bottom:3px">存储内容 <span style="color:var(--dim);font-weight:400;font-size:11px">· 当前目录</span></div>
+        <div class="crumbs" id="crumbs"><!--CRUMBS--></div>
+      </div>
       <button class="btn" id="new-folder" type="button" data-need="builder">新建文件夹</button>
     </div>
     <table id="list">
@@ -345,7 +349,7 @@
     </table>
   </div>
 
-  <div class="card">
+  <div class="card" id="card-video">
     <div class="card-head">
       <span class="card-title">视频播放</span>
       <span class="pill"><b id="video-count">0</b> 个视频</span>
@@ -360,7 +364,7 @@
     </div>
   </div>
 
-  <div class="card" data-need="builder">
+  <div class="card" data-need="builder" id="card-monitor">
     <div class="card-head">
       <span class="card-title">请求监视器</span>
       <div class="head-tools">
@@ -870,5 +874,6 @@ if (wrap.dataset.role !== "guest") {
   setInterval(pollReqs, 1200);
 }
 </script>
+<script src="<!--ASSET_JS-->"></script>
 </body>
 </html>

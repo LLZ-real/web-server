@@ -6,6 +6,7 @@ import time
 from urllib.parse import quote
 
 from utils import auth, crypto, pathsafe
+from handlers import static
 
 TEMPLATE_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "public", "index.html"
@@ -74,13 +75,16 @@ def scan(real_dir: str):
             elif item.is_file():
                 stat = item.stat()
                 encrypted = crypto.is_encrypted(item.path)
+                # 伪造/损坏的加密头会被 plain_size 判为 0，列表不再被污染
+                size = crypto.plain_size(item.path) if encrypted else stat.st_size
                 files.append(
                     {
                         "type": "file",
                         "name": item.name,
-                        "size": crypto.plain_size(item.path) if encrypted else stat.st_size,
+                        "size": size,
                         "mtime": stat.st_mtime,
                         "encrypted": encrypted,
+                        "ext": os.path.splitext(item.name)[1].lower(),
                     }
                 )
         except OSError:
@@ -165,7 +169,8 @@ def render_rows(entries, rel_dir: str, role: str = "guest") -> str:
                 % (html.escape(file_url, quote=True), escaped_name)
             )
         rows.append(
-            '<tr data-name="%s" data-rel="%s" data-size="%d" data-enc="%d">'
+            '<tr data-name="%s" data-rel="%s" data-size="%d" data-enc="%d" '
+            'data-ext="%s" data-mtime="%d">'
             '<td class="name"><span class="badge %s">%s</span>%s</td>'
             '<td class="size">%s</td>'
             '<td class="time">%s</td>'
@@ -177,6 +182,8 @@ def render_rows(entries, rel_dir: str, role: str = "guest") -> str:
                 html.escape(rel, quote=True),
                 entry["size"],
                 1 if encrypted else 0,
+                html.escape(entry.get("ext", ""), quote=True),
+                int(entry["mtime"]),
                 cls,
                 html.escape(label),
                 name_cell,
@@ -212,6 +219,9 @@ def handle(handler, rel_dir="", role="guest"):
     page = page.replace("<!--ROLE-->", role)
     page = page.replace("<!--ROLE_LABEL-->", auth.LABELS.get(role, role))
     page = page.replace("<!--ROLE_HINT-->", ROLE_HINTS.get(role, ""))
+    # 静态资源带内容哈希版本戳：改了 app.js/dash.css 后浏览器不会再用旧缓存
+    page = page.replace("<!--ASSET_CSS-->", "/static/dash.css?v=%s" % static.asset_version("dash.css"))
+    page = page.replace("<!--ASSET_JS-->", "/static/app.js?v=%s" % static.asset_version("app.js"))
     body = page.encode("utf-8")
 
     handler._send_head(
@@ -219,6 +229,7 @@ def handle(handler, rel_dir="", role="guest"):
         "text/html; charset=utf-8",
         len(body),
         {"Connection": "keep-alive"},
+        page=True,
     )
     if not handler._head_only:
         handler.wfile.write(body)

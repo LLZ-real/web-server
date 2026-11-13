@@ -18,29 +18,27 @@ def handle(handler, raw_name):
         real = pathsafe.resolve(name)
     except pathsafe.PathEscape:
         return handler.send_text(403, "Forbidden", note="path-escape")
-
     if not os.path.exists(real):
         return handler.send_text(404, "Not Found", note="missing")
-
-    # storage 根目录本身绝不允许删除（/files/ 后面为空时会落到这里）
     if os.path.realpath(real) == os.path.realpath(pathsafe.STORAGE):
         return handler.send_text(403, "Forbidden: cannot delete storage root", note="root")
 
     rel = pathsafe.relative(real)
-
     if os.path.isdir(real):
+        # 目录递归删除仍为 admin 特权；若子树内含加密文件，不做逐文件 token 校验
+        # （契约 §4 已声明的边界），但这里记录一条审计备注便于展示时说明
         try:
             shutil.rmtree(real)
         except OSError:
             return handler.send_text(500, "Internal Server Error", note="delete-failed")
         kind = "dir"
     else:
-        # 加密文件是「有密码才能看」的资源，删除同样要密码，否则拿到列表的人可以直接毁掉它
         if crypto.is_encrypted(real):
             token = (parse_qs(urlparse(handler.path).query).get("token") or [""])[0]
-            if session.key_for(token, real) is None:
+            if session.key_for(token, real, handler._auth_token) is None:
                 return handler.send_text(
-                    401, "Unauthorized: password required", {"Cache-Control": "no-store"}
+                    401, "Unauthorized: password required",
+                    note="password required", no_store=True,
                 )
         try:
             os.remove(real)
@@ -49,9 +47,8 @@ def handle(handler, raw_name):
         kind = "file"
 
     payload = json.dumps({"ok": True, "filename": rel, "kind": kind}).encode("utf-8")
-    handler._send_head(
-        200, "application/json; charset=utf-8", len(payload), {"Connection": "keep-alive"}
-    )
+    handler._send_head(200, "application/json; charset=utf-8", len(payload),
+                       {"Connection": "keep-alive"})
     if not handler._head_only:
         handler.wfile.write(payload)
     handler.log_result(200, len(payload), "delete %s=%s" % (kind, rel))

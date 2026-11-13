@@ -1,0 +1,311 @@
+/* ============================================================
+   Web File Server · 演示增强层
+   实时仪表盘 / 协议实验室 / 画廊 / 主题 / 搜索
+   ============================================================ */
+
+:root {
+  --grad-a: #4c8bf5;
+  --grad-b: #7c5cff;
+  --grad-c: #3ecf8e;
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, .38);
+}
+
+/* ---------- 顶部工具栏 ---------- */
+.wfs-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: -6px 0 18px; padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.wfs-toolbar .spacer { flex: 1; }
+.wfs-toolbar .tb-label { color: var(--dim); font-size: 12px; margin-right: 2px; }
+.wfs-search {
+  flex: 0 1 230px; min-width: 140px; padding: 7px 12px;
+  border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--fg); font: inherit; font-size: 13px;
+}
+.wfs-search:focus { outline: none; border-color: var(--accent); }
+.wfs-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--dim); font: inherit; font-size: 12px;
+  cursor: pointer; transition: .15s; white-space: nowrap;
+}
+.wfs-btn:hover { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
+.wfs-btn.on { color: var(--accent); border-color: rgba(76,139,245,.45); background: var(--accent-soft); }
+.wfs-btn.primary {
+  background: linear-gradient(120deg, var(--grad-a), var(--grad-b));
+  color: #fff; border-color: transparent; font-weight: 600;
+}
+.wfs-btn.primary:hover { filter: brightness(1.12); color: #fff; }
+.wfs-btn svg { width: 14px; height: 14px; }
+
+/* ---------- 仪表盘 KPI ---------- */
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 12px; margin-bottom: 18px;
+}
+.kpi {
+  position: relative; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 14px 16px;
+}
+.kpi::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: linear-gradient(90deg, var(--grad-a), var(--grad-b));
+}
+.kpi.k2::before { background: linear-gradient(90deg, var(--grad-c), #2bb0a0); }
+.kpi.k3::before { background: linear-gradient(90deg, #ff9f43, #ffd166); }
+.kpi.k4::before { background: linear-gradient(90deg, #a078ff, #ef5b9a); }
+.kpi .k-label { color: var(--dim); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.kpi .k-value {
+  font-size: 24px; font-weight: 700; margin-top: 4px;
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.kpi .k-sub { color: var(--dim); font-size: 11px; margin-top: 2px; }
+.kpi .k-delta { color: var(--ok); font-size: 11px; }
+
+/* ---------- 图表区 ---------- */
+.chart-grid { display: grid; grid-template-columns: 1fr 260px; gap: 16px; }
+@media (max-width: 780px) { .chart-grid { grid-template-columns: 1fr; } }
+.chart-box { background: var(--panel-2); border: 1px solid var(--line-soft);
+             border-radius: 10px; padding: 12px; }
+.chart-title { color: var(--dim); font-size: 11px; margin-bottom: 8px;
+               letter-spacing: .05em; text-transform: uppercase; }
+canvas.wfs-canvas { width: 100%; display: block; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--dim); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+/* ---------- 状态码条 ---------- */
+.status-bars { display: grid; gap: 8px; margin-top: 4px; }
+.sb-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.sb-row .sb-tag { width: 30px; color: var(--dim); font-weight: 700; }
+.sb-track { flex: 1; height: 7px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.sb-track i { display: block; height: 100%; border-radius: 99px; transition: width .4s ease; }
+.sb-row .sb-num { width: 42px; text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); }
+
+/* ---------- 存储分布 ---------- */
+.type-bars { display: grid; gap: 7px; }
+.tb-row { display: grid; grid-template-columns: 62px 1fr 54px; gap: 8px;
+          align-items: center; font-size: 11px; color: var(--dim); }
+.tb-track { height: 7px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.tb-track i { display: block; height: 100%; border-radius: 99px; }
+.tb-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---------- 协议实验室 ---------- */
+.lab-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 780px) { .lab-grid { grid-template-columns: 1fr; } }
+.lab-form { display: grid; gap: 9px; }
+.lab-form label { color: var(--dim); font-size: 11.5px; }
+.lab-form input, .lab-form select {
+  width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--fg); font: inherit; font-size: 12.5px;
+}
+.lab-form input:focus, .lab-form select:focus { outline: none; border-color: var(--accent); }
+.lab-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.lab-presets button { font-size: 11px; padding: 5px 9px; }
+.lab-out {
+  background: #0b0d11; border: 1px solid var(--line); border-radius: 9px;
+  padding: 12px; min-height: 180px; max-height: 330px; overflow: auto;
+  font: 11.5px/1.65 ui-monospace, SFMono-Regular, Consolas, "Cascadia Code", monospace;
+  white-space: pre-wrap; word-break: break-all; color: #c9d3e6;
+}
+.lab-out .ln-status { color: #3ecf8e; font-weight: 700; }
+.lab-out .ln-key { color: #7aa9ff; }
+.lab-out .ln-note { color: #ffd166; }
+.lab-out .ln-err { color: #ef5b5b; }
+
+/* ---------- 图片画廊 ---------- */
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+           gap: 10px; margin-top: 4px; }
+.gal-item {
+  position: relative; aspect-ratio: 1; border-radius: 9px; overflow: hidden;
+  border: 1px solid var(--line); background: var(--panel-2); cursor: pointer;
+  transition: transform .16s, border-color .16s;
+}
+.gal-item:hover { transform: translateY(-2px); border-color: var(--accent); }
+.gal-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gal-item .gal-cap {
+  position: absolute; inset: auto 0 0 0; padding: 5px 7px;
+  font-size: 10px; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.82));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.gal-empty { color: var(--dim); font-size: 12.5px; padding: 14px 0; }
+
+/* ---------- 灯箱 ---------- */
+#lightbox {
+  position: fixed; inset: 0; z-index: 200; display: none;
+  align-items: center; justify-content: center; flex-direction: column;
+  background: rgba(6, 8, 12, .93); backdrop-filter: blur(8px);
+}
+#lightbox.on { display: flex; }
+#lightbox img { max-width: 92vw; max-height: 78vh; border-radius: 10px;
+                box-shadow: var(--shadow-lg); object-fit: contain; }
+#lightbox .lb-cap { color: var(--fg); font-size: 13px; margin-top: 14px; }
+#lightbox .lb-hint { color: var(--dim); font-size: 11px; margin-top: 5px; }
+#lightbox .lb-close, #lightbox .lb-nav {
+  position: absolute; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16);
+  color: #fff; border-radius: 8px; cursor: pointer; font-size: 20px;
+  width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+}
+#lightbox .lb-close { top: 18px; right: 20px; }
+#lightbox .lb-nav.prev { left: 18px; top: 50%; transform: translateY(-50%); }
+#lightbox .lb-nav.next { right: 18px; top: 50%; transform: translateY(-50%); }
+#lightbox .lb-close:hover, #lightbox .lb-nav:hover { background: rgba(255,255,255,.18); }
+
+/* ---------- 上传速率 ---------- */
+.wfs-speed { color: var(--ok); font-size: 11.5px; margin-left: 8px;
+             font-variant-numeric: tabular-nums; }
+
+/* ---------- 亮色主题 ---------- */
+body.wfs-light {
+  --bg: #f2f4f9; --panel: #ffffff; --panel-2: #f7f9fc;
+  --line: #e2e7f0; --line-soft: #edf0f6;
+  --fg: #1b2231; --dim: #6b7590;
+  background: radial-gradient(900px 420px at 50% -220px, rgba(76,139,245,.12), transparent 70%), var(--bg);
+}
+body.wfs-light .kpi, body.wfs-light .card, body.wfs-light .wfs-toolbar { box-shadow: 0 2px 12px rgba(20,40,90,.05); }
+body.wfs-light .lab-out { background: #f7f9fc; color: #2a3550; border-color: #e2e7f0; }
+body.wfs-light .lab-out .ln-key { color: #2b62c9; }
+body.wfs-light .lab-out .ln-status { color: #178a5a; }
+body.wfs-light .lab-out .ln-note { color: #a26a00; }
+body.wfs-light .lab-out .ln-err { color: #c23333; }
+
+/* ---------- 视图：紧凑表格 ---------- */
+table.compact tbody td { padding: 7px 12px; font-size: 12.5px; }
+table.compact .badge { height: 18px; min-width: 34px; font-size: 9px; }
+
+/* ---------- 演示徽标 ---------- */
+.live-badge {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+  color: var(--ok); padding: 4px 10px; border-radius: 99px;
+  background: rgba(62,207,142,.10); border: 1px solid rgba(62,207,142,.25);
+}
+.live-badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok);
+                animation: wfs-pulse 1.6s infinite; }
+@keyframes wfs-pulse { 0%{box-shadow:0 0 0 0 rgba(62,207,142,.6)} 70%{box-shadow:0 0 0 6px rgba(62,207,142,0)} 100%{box-shadow:0 0 0 0 rgba(62,207,142,0)} }
+.live-badge.off { color: var(--dim); border-color: var(--line); background: var(--panel-2); }
+.live-badge.off i { background: var(--dim); animation: none; }
+
+/* ---------- 分享弹层 ---------- */
+#share-pop {
+  position: fixed; z-index: 150; right: 20px; top: 70px; width: 230px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px; box-shadow: var(--shadow-lg); display: none; text-align: center;
+}
+#share-pop.on { display: block; }
+#share-pop canvas { background: #fff; padding: 8px; border-radius: 8px; }
+#share-pop .sp-url { color: var(--dim); font-size: 10.5px; margin-top: 10px;
+                     word-break: break-all; line-height: 1.5; }
+
+
+/* ============================================================
+   v3：模块导航 / 全局搜索 / 讲解面板 / 响应释义
+   ============================================================ */
+
+/* ---------- 顶部工具栏：导航 ---------- */
+.wfs-toolbar { position: sticky; top: 8px; z-index: 60; }
+.wfs-nav { display: flex; gap: 4px; flex-wrap: wrap; }
+.wfs-nav .wfs-btn { padding: 6px 10px; font-size: 11.5px; }
+.dim { color: var(--dim); font-weight: 400; font-size: 11px; }
+
+/* ---------- 搜索结果卡片（页面内独立呈现） ---------- */
+.wfs-search-wrap { display: flex; align-items: center; gap: 8px; }
+.wfs-search-wrap .wfs-search { flex: 0 1 280px; }
+#card-search { border-color: rgba(76,139,245,.45); }
+#card-search .card-head { align-items: flex-start; }
+.sr-empty { color: var(--dim); font-size: 12.5px; padding: 18px 4px; text-align: center; }
+.sr-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 6px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.sr-row:last-child { border-bottom: 0; }
+.sr-row:hover { background: var(--panel-2); }
+.sr-badge {
+  flex: none; min-width: 44px; text-align: center; padding: 4px 6px;
+  border-radius: 6px; font-size: 9.5px; font-weight: 700;
+  background: rgba(76,139,245,.14); color: #6fa4ff;
+}
+.sr-badge.dir { background: rgba(255,209,102,.14); color: #ffd166; }
+.sr-main { flex: 1; min-width: 0; }
+.sr-name { font-size: 13px; font-weight: 600; color: var(--fg);
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr-path { font-size: 11px; color: var(--dim); margin-top: 2px;
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sr-actions { display: flex; gap: 6px; flex: none; }
+.sr-actions .wfs-btn { font-size: 11px; padding: 5px 9px; text-decoration: none; }
+#search-crumbs { margin-top: 3px; }
+#search-crumbs .sep { color: #3b4353; margin: 0 4px; }
+@media (max-width: 620px) {
+  .sr-row { flex-wrap: wrap; }
+  .sr-actions { width: 100%; justify-content: flex-end; }
+}
+
+/* 搜索结果跳转后的高亮行 */
+tr.wfs-hit { animation: wfs-hit 2.4s ease-out; }
+tr.wfs-hit td { background: rgba(76,139,245,.16) !important; }
+@keyframes wfs-hit {
+  0%   { box-shadow: inset 0 0 0 2px var(--accent); }
+  70%  { box-shadow: inset 0 0 0 2px var(--accent); }
+  100% { box-shadow: none; }
+}
+
+/* ---------- 数据洞察区 ---------- */
+.wfs-section { margin-top: 30px; }
+.wfs-section-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 12px; margin: 0 2px 14px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.wfs-section-head h2 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: .2px; }
+.wfs-section-head h2::before {
+  content: ""; display: inline-block; width: 3px; height: 16px;
+  background: linear-gradient(var(--grad-a), var(--grad-b));
+  border-radius: 2px; margin-right: 9px; vertical-align: -2px;
+}
+.wfs-section-head p { margin: 4px 0 0; color: var(--dim); font-size: 12px; }
+
+/* ---------- 亮色主题下的补充 ---------- */
+body.wfs-light .wfs-toolbar { background: rgba(255,255,255,.92); backdrop-filter: blur(8px); }
+
+.sp-lock { font-size: 10px; color: #d9b45a; }
+
+/* ---------- Toast 在亮色主题下的可读性 ----------
+   原 .toast 背景硬编码 #1f242d（深色），文字用 var(--fg)；
+   亮色主题下 --fg 变成深色 → 深底深字不可读。这里统一覆盖。 */
+body.wfs-light #toasts .toast {
+  background: #ffffff;
+  border-color: #dbe2ee;
+  color: #1b2231;
+  box-shadow: 0 10px 28px rgba(20, 40, 90, .16);
+}
+body.wfs-light #toasts .toast.err {
+  border-left-color: #d93b3b;
+  color: #8f1f1f;
+  background: #fff6f6;
+}
+body.wfs-light #toasts .toast:not(.err) {
+  border-left-color: #17915f;
+  color: #0f5c3d;
+  background: #f4fdf8;
+}
+
+/* ---------- 分享弹层 / 灯箱在亮色主题下 ---------- */
+body.wfs-light #share-pop {
+  background: #ffffff; border-color: #dbe2ee;
+  box-shadow: 0 18px 48px rgba(20, 40, 90, .18);
+}
+body.wfs-light #share-pop .sp-url { color: #5a6478; }
+body.wfs-light #lightbox { background: rgba(240, 243, 249, .96); }
+body.wfs-light #lightbox .lb-cap { color: #1b2231; }
+body.wfs-light #lightbox .lb-hint { color: #6b7590; }
+body.wfs-light #lightbox .lb-close,
+body.wfs-light #lightbox .lb-nav {
+  background: rgba(20, 40, 90, .07); border-color: rgba(20, 40, 90, .16); color: #1b2231;
+}
+body.wfs-light #lightbox .lb-close:hover,
+body.wfs-light #lightbox .lb-nav:hover { background: rgba(20, 40, 90, .14); }
+
+/* 亮色下工具提示与对话框 */
+body.wfs-light dialog#dlg { background: #ffffff; border-color: #dbe2ee; }
+body.wfs-light dialog#dlg input { background: #f7f9fc; border-color: #dbe2ee; color: #1b2231; }
